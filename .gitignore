@@ -1,0 +1,4 @@
+data/stocks.db
+data/
+*.db
+logs/

@@ -1,0 +1,30 @@
+{
+  "version": "V8",
+  "date": "2026-03-13",
+  "target": "月收益5%+",
+  "params": {
+    "min_score": 10,
+    "hold_days": 10,
+    "stop_loss": 0.02,
+    "take_profit": 1.0,
+    "min_change": 3.0,
+    "min_vol_ratio": 1.5
+  },
+  "signals": {
+    "涨3%+": 3,
+    "多头排列": 3,
+    "资金流入": 3,
+    "near_high": 2,
+    "MACD金叉": 2,
+    "MACD红柱": 1,
+    "放量": 2,
+    "新高": 2
+  },
+  "backtest": {
+    "start_date": "2025-01-01",
+    "end_date": "2026-03-12",
+    "win_rate": "57.8%",
+    "avg_return": "4.87%",
+    "total_trades": 790
+  }
+}
