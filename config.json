@@ -1,0 +1,10 @@
+{
+  "discord_webhook": "https://discord.com/api/webhooks/1477602301777805312/4sq82ajSrVKfOQbmTm6Ob2XoJUcvU-513a08sWStiIZmbiPA2imdgE5upsb6m2h4iGkA",
+  "discord_channel_id": "",
+  "smtp_host": "smtp.qq.com",
+  "smtp_port": 587,
+  "smtp_user": "your_email@qq.com",
+  "smtp_password": "your_auth_code",
+  "email_from": "your_email@qq.com",
+  "email_to": ["recipient@example.com"]
+}
