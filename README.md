@@ -1,31 +1,23 @@
-# 🤖 白板红中量化交易系统 - V8
+# 🤖 白板量化交易系统 - V6.2
 
-> 多Agent量化交易系统 | 月收益目标5%+
+> 模拟交易系统 | 自动选股 | RPS强势股扫描
 
 ---
 
 ## 📋 系统概述
 
-**目标**: 月收益5%+ | 胜率57.8% | 平均收益4.87%/笔
-
-### 核心功能
-
-1. **多Agent架构** - 数据/策略/执行/风控/报告分离
-2. **V8策略** - 强势趋势+资金流入+板块启动
-3. **实时价格** - 多数据源容错 (腾讯/新浪/东方财富)
-4. **交易前置检查** - 只有当日数据有效才执行交易
-5. **自动选股** - 每日14:30 + 盘中10/11/14点实时扫描
+- **版本**: V6.2.1
+- **目标**: 稳定量化收益
+- **核心功能**: RPS强势股扫描 + 自动买入 + 模拟交易
 
 ---
 
 ## 🏗️ 架构
 
 ```
-数据Agent → 策略Agent → 执行Agent → 风控Agent → 报告Agent
-              ↓
-        实时价格获取 (多数据源)
-              ↓
-        交易前置检查 (数据有效性验证)
+数据获取 → 选股策略 → 自动买入 → 风控 → 报告
+   ↓           ↓           ↓         ↓       ↓
+数据库    技术分析    滑点计算   止损止盈   邮件/Discord
 ```
 
 ---
@@ -34,78 +26,96 @@
 
 ```
 stock_analyzer/
-├── data_agent.py         # 数据抓取/存储
-├── strategy_v8.py       # V8策略选股
-├── realtime_price.py    # 多数据源实时价格
-├── realtime_scan.py     # 实时选股扫描
-├── trade_precheck.py    # 交易前置检查
-├── execution_agent.py   # 交易执行
-├── risk_agent.py       # 风控/止盈止损
-├── report_agent.py     # 报告生成/邮件
-├── backtest_agent.py   # 回测分析
-├── quant_system.py     # 统一入口
-└── config_v8.json      # V8策略配置
+├── sim_trade.py          # 主程序 (选股/买入/卖出)
+├── core.py               # 核心引擎
+├── smart_fetcher.py      # 智能数据获取
+├── indicators.py         # 技术指标计算
+├── data_fetcher.py       # 数据抓取
+├── daily_report.py       # 日报生成
+├── backtest_agent.py     # 回测分析
+├── execution_agent.py    # 交易执行
+├── report_agent.py       # 报告生成
+├── realtime_agent.py     # 实时监控
+├── fix_missing_klines.py # 数据补全
+├── data/
+│   └── stocks.db        # 股票数据库
+├── changelog/
+│   └── V6.2.1.md       # 更新日志
+└── mail_config.json     # 邮件配置
 ```
-
----
-
-## ⚙️ V8策略参数
-
-| 参数 | 值 |
-|------|-----|
-| 最低评分 | 10分 |
-| 持有天数 | 10天 |
-| 止损 | 2% |
-| 止盈 | 不设限 |
-
-### 选股信号
-
-| 信号 | 分数 |
-|------|------|
-| 涨幅>3% | +3 |
-| 多头排列 | +3 |
-| 资金流入 | +3 |
-| 接近20日高点 | +2 |
-| MACD金叉 | +2 |
-| MACD红柱 | +1 |
 
 ---
 
 ## 🚀 快速开始
 
 ```bash
-# 1. 安装依赖
-pip install requests pandas numpy
+# 扫描观察池股票
+python3 sim_trade.py scan
 
-# 2. 配置邮件
-编辑 mail_config.json
+# 自动买入模式 (交易时段)
+python3 sim_trade.py trade
 
-# 3. 运行选股
-python3 quant_system.py scan --min-score 10
+# RPS强势股扫描
+python3 sim_trade.py rps
 
-# 4. 执行交易
-python3 quant_system.py exec --sub signals
+# RPS扫描 + 自动买入
+python3 sim_trade.py rps_trade
+
+# 查看持仓
+python3 sim_trade.py status
+
+# 生成报告
+python3 sim_trade.py report
 ```
 
 ---
 
-## 📊 回测结果
+## 📊 交易策略
 
-- **区间**: 2025-01-01 ~ 2026-03-12
-- **胜率**: 57.8%
-- **平均收益**: 4.87%/笔
-- **交易次数**: 790次
+### 买入条件
+
+| 条件 | 说明 |
+|------|------|
+| RPS > 85 | 120日涨幅排名前15% |
+| 多头排列 | MA5 > MA10 > MA20 |
+| 放量 | 量比 1.2-3 |
+
+### 卖出条件
+
+| 条件 | 说明 |
+|------|------|
+| 止损 | -5% |
+| 止盈 | +10% |
+| 持有期 | 最长10天 |
+
+### 费用
+
+- 买入滑点: 0.2%
+- 卖出手续费: 万三 (0.03%)
 
 ---
 
-## ⚠️ 关键规则
+## ⏰ Cron 任务
 
-**交易前置检查**: 只有当日实时价格获取成功才执行交易
+| 任务 | 时间 | 说明 |
+|------|------|------|
+| sim-trade-auto | 9:30-11:30, 13:00-14:57 | 每30分钟扫描买入 |
+| rps-scan | 10:00 | RPS强势股扫描 |
+| daily-report | 14:30 | 每日报告 |
 
-```python
-from trade_precheck import can_trade
-can_trade(code)  # 返回 (bool, reason)
-```
+---
+
+## 🗄️ 数据库
+
+- **位置**: `data/stocks.db`
+- **表**: daily_data (code, date, open, high, low, close, volume, amount)
+- **更新**: 每日16:00自动补数据
+
+---
+
+## 📝 更新日志
+
+See `changelog/V6.2.1.md`
 
 ---
 
