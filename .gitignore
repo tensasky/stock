@@ -1,21 +1,3 @@
-# 数据文件
-*.db
-data/*.db
-
-# 备份
-*.bak
-*.backup
-
-# 日志
-*.log
-logs/
-
-# Python
-__pycache__/
-*.pyc
-
-# 配置文件
-mail_config.json
-data/
-sim_trade.pkl
-stock_pool_data.pkl
+stock_analyzer/
+stock_analyzer_v6.zip
+config/openclaw.json
