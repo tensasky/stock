@@ -9,13 +9,15 @@ BACKUP_DIR="/Users/roberto/.openclaw/workspace/workspace_backups/${VERSION}_${DA
 
 mkdir -p "$BACKUP_DIR"
 
-# 复制关键文件
+# 复制关键文件 (本地备份)
 cp /Users/roberto/.openclaw/workspace/SOUL.md "$BACKUP_DIR/"
-cp /Users/roberto/.openclaw/openclaw.json "$BACKUP_DIR/"
 cp /Users/roberto/.openclaw/workspace/USER.md "$BACKUP_DIR/"
 cp /Users/roberto/.openclaw/workspace/IDENTITY.md "$BACKUP_DIR/"
 cp /Users/roberto/.openclaw/workspace/AGENTS.md "$BACKUP_DIR/"
 cp /Users/roberto/.openclaw/workspace/HEARTBEAT.md "$BACKUP_DIR/"
+
+# 复制配置 (本地备份, 不推送到GitHub)
+cp /Users/roberto/.openclaw/openclaw.json "$BACKUP_DIR/"
 
 echo "✅ 备份完成: $BACKUP_DIR"
 ls -la "$BACKUP_DIR"
