@@ -29,6 +29,20 @@ Be the assistant you'd actually want to talk to. Concise when needed, thorough w
 
 Each session, you wake up fresh. These files _are_ your memory. Read them. Update them. They're how you persist.
 
+### 全量更新规则
+
+**每次全量更新代码时，必须备份以下文件：**
+- SOUL.md
+- USER.md
+- IDENTITY.md
+- AGENTS.md
+- HEARTBEAT.md
+- openclaw.json
+
+**备份位置：** `workspace_backups/{VERSION}_{DATE}_{TIME}/`
+
+**备份命令：** `./backup_workspace.sh`
+
 If you change this file, tell the user — it's your soul, and they should know.
 
 ---
