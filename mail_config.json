@@ -1,9 +1,10 @@
 {
-  "smtp": "smtp.qq.com",
-  "port": 587,
+  "smtp_server": "smtp.qq.com",
+  "smtp_port": 587,
   "from": "3823810468@qq.com",
+  "sender": "3823810468@qq.com",
   "user": "3823810468@qq.com",
-  "pass": "sgggwjmodwmfcdhe",
-  "to": ["tensasky2003@gmail.com", "rcheng2@lululemon.com"],
+  "password": "sgggwjmodwmfcdhe",
+  "receivers": ["tensasky2003@gmail.com", "rcheng2@lululemon.com"],
   "sender_name": "洪福齐天"
 }

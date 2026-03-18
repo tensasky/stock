@@ -6,7 +6,7 @@ V6.2 模拟操盘系统
 - 量化指标选股
 """
 
-import sys, os, pickle, json, re, requests
+import sys, os, pickle, json, re, requests, sqlite3
 from datetime import datetime, timedelta
 import smtplib
 from email.mime.text import MIMEText
@@ -20,6 +20,7 @@ from smart_fetcher import SmartDataFetcher
 
 # 配置
 DATA_FILE = 'sim_trade.pkl'
+DB_PATH = 'data/stocks.db'
 MAIL_CONFIG = 'mail_config.json'
 TRADING_HOURS = [('09:35', '11:30'), ('13:00', '14:57')]
 NOTIFY_INTERVAL = 30
@@ -83,6 +84,59 @@ def send_notify(subject, body):
     except Exception as e:
         print(f"❌ 邮件失败: {e}")
 
+# === 交易费用设置 ===
+SLIPPAGE = 0.002  # 滑点0.2%
+SELL_FEE = 0.0003  # 卖出手续费万三
+
+def calculate_buy_price(price):
+    """计算买入价格（含滑点）"""
+    return price * (1 + SLIPPAGE)
+
+def calculate_sell_price(price):
+    """计算卖出价格（含手续费）"""
+    return price * (1 - SELL_FEE)
+
+def auto_buy(code, name, price, reason):
+    """自动买入"""
+    data = load_data()
+    
+    # 检查是否已持仓
+    for p in data['positions']:
+        if p['code'] == code:
+            print(f"  ⏭️ {code} 已持仓，跳过")
+            return False
+    
+    # 计算买入价格（含滑点）
+    buy_price = calculate_buy_price(price)
+    
+    # 记录持仓
+    position = {
+        'code': code,
+        'name': name,
+        'entry_price': buy_price,
+        'entry_time': datetime.now().strftime('%Y-%m-%d %H:%M'),
+        'stop_loss': buy_price * 0.95,  # 5%止损
+        'take_profit': buy_price * 1.10,  # 10%止盈
+        'reason': reason,
+        'shares': 100  # 模拟100股
+    }
+    data['positions'].append(position)
+    
+    # 记录交易
+    data['trades'].append({
+        'type': 'BUY',
+        'code': code,
+        'name': name,
+        'price': buy_price,
+        'time': datetime.now().strftime('%Y-%m-%d %H:%M'),
+        'reason': reason,
+        'slippage': SLIPPAGE * 100
+    })
+    
+    save_data(data)
+    print(f"  📈 自动买入 {code} {name} @ {buy_price:.2f} (滑点{SLIPPAGE*100:.1f}%)")
+    return True
+
 def analyze_stock(code, df):
     """分析股票信号"""
     if df is None or len(df) < 20: return None
@@ -111,7 +165,7 @@ def analyze_stock(code, df):
     
     return {'code': code, 'name': get_name(code), 'price': price, 'change': change, 'vol_ratio': v.iloc[-1], 'score': score, 'can_buy': can_buy, 'ma': has_ma, 'money': money_streak}
 
-def run_scan():
+def run_scan(auto_buy=False):
     """扫描选股"""
     fetcher = SmartDataFetcher()
     print("🔍 扫描候选股票 (实时)...")
@@ -131,6 +185,23 @@ def run_scan():
             if result and result['can_buy']:
                 candidates.append(result)
                 print(f"  ✅ {code}: {result['name']} {result['price']:.2f} ({result['change']:+.1f}%)")
+                
+                # 自动买入
+                if auto_buy:
+                    try:
+                        signals = []
+                        ma_val = result.get('ma')
+                        money_val = result.get('money')
+                        if ma_val:
+                            signals.append('多头排列')
+                        if money_val:
+                            signals.append('资金流入')
+                        reason = f"技术面信号: {'+'.join(signals) if signals else '符合买入条件'}"
+                        auto_buy(result['code'], result['name'], result['price'], reason)
+                    except Exception as e:
+                        import traceback
+                        print(f"  ❌ 自动买入失败: {e}")
+                        traceback.print_exc()
         except Exception as e:
             print(f"  ❌ {code}: {e}")
     
@@ -316,15 +387,117 @@ def generate_report():
     # 返回纯文本格式（用于邮件）
     return full_report
 
+# === RPS 强势股筛选模块 ===
+
+def calculate_rps(code, days=120):
+    """计算单只股票的RPS"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(f'''
+        SELECT (MAX(close) - MIN(close)) / NULLIF(MIN(close), 0) * 100 as change
+        FROM daily_data
+        WHERE code = '{code}' AND date >= date('now', '-{days} days')
+    ''')
+    result = cursor.fetchone()
+    conn.close()
+    return result[0] if result and result[0] else 0
+
+def get_rps_rank(days=120, min_days=60):
+    """获取全市场RPS排名"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(f'''
+        SELECT code, 
+               (MAX(close) - MIN(close)) / NULLIF(MIN(close), 0) * 100 as rps
+        FROM daily_data
+        WHERE date >= date('now', '-{days} days')
+        GROUP BY code
+        HAVING COUNT(DISTINCT date) >= {min_days}
+        ORDER BY rps DESC
+    ''')
+    results = cursor.fetchall()
+    conn.close()
+    
+    total = len(results)
+    rps_list = []
+    for i, r in enumerate(results):
+        rank_pct = (total - i) / total * 100
+        rps_list.append({'code': r[0], 'rps': r[1], 'rank': i + 1, 'rank_pct': rank_pct})
+    return rps_list
+
+def scan_rps_stocks(min_rps=80, days=120):
+    """扫描RPS强势股"""
+    print(f"📊 扫描RPS{days}强势股 (RPS>{min_rps})...")
+    
+    rps_list = get_rps_rank(days=days)
+    strong_stocks = [s for s in rps_list if s['rank_pct'] >= min_rps]
+    
+    results = []
+    for s in strong_stocks[:30]:
+        code = s['code']
+        rt = get_realtime_price(code)
+        if not rt:
+            continue
+        
+        fetcher = SmartDataFetcher()
+        df = fetcher.get_stock_data(code, days=25)
+        if df is None or len(df) < 20:
+            continue
+        
+        close = df['close']
+        ma5, ma10, ma20 = close.rolling(5).mean(), close.rolling(10).mean(), close.rolling(20).mean()
+        v = df['volume'] / df['volume'].rolling(20).mean()
+        
+        has_ma = ma5.iloc[-1] > ma10.iloc[-1] > ma20.iloc[-1]
+        change = (rt['price'] - rt['open']) / rt['open'] * 100
+        
+        results.append({
+            'code': code,
+            'name': get_name(code),
+            'price': rt['price'],
+            'change': change,
+            'rps': s['rps'],
+            'rps_pct': s['rank_pct'],
+            'ma': has_ma,
+            'vol_ratio': v.iloc[-1]
+        })
+    
+    results.sort(key=lambda x: x['rps_pct'], reverse=True)
+    print(f"  找到{len(results)}只RPS>{min_rps}的股票")
+    return results
+
+def run_rps_scan(auto_buy=False, min_rps=85):
+    """RPS扫描并可选自动买入"""
+    results = scan_rps_stocks(min_rps=min_rps)
+    
+    # 筛选: RPS > 85 + 多头排列 + 放量
+    candidates = []
+    for r in results:
+        if r['rps_pct'] >= min_rps and r['ma'] and 1.2 < r['vol_ratio'] < 3:
+            candidates.append(r)
+    
+    print(f"\n📈 符合RPS>{min_rps}+多头+放量: {len(candidates)}只")
+    for c in candidates:
+        print(f"  ✅ {c['code']} {c['name']:<8} RPS:{c['rps_pct']:.1f} 现价:{c['price']:.2f} 涨幅:{c['change']:+.1f}%")
+        
+        if auto_buy:
+            # 自动买入
+            reason = f"RPS{c['rps_pct']:.0f}+多头+放量"
+            auto_buy(c['code'], c['name'], c['price'], reason)
+    
+    return candidates
+
 # CLI
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('action', choices=['scan','check','status','report'])
+    parser.add_argument('action', choices=['scan','check','status','report','trade','rps','rps_trade'])
     args = parser.parse_args()
     
     if args.action == 'scan':
-        run_scan()
+        run_scan(auto_buy=False)
+    elif args.action == 'trade':
+        run_scan(auto_buy=True)
     elif args.action == 'check':
         alerts = check_positions()
         for a in alerts:
@@ -333,7 +506,16 @@ if __name__ == '__main__':
         data = load_data()
         print(f"持仓: {len(data['positions'])}只")
         for p in data['positions']:
-            print(f"  {p['code']}: {p['entry_price']} -> {p['last_price']}")
+            # 计算当前盈亏（含手续费）
+            curr = p.get('last_price', p['entry_price'])
+            cost = p['entry_price'] * p['shares']
+            curr_val = curr * p['shares']
+            pnl = (curr_val - cost) / cost * 100
+            print(f"  {p['code']} {p['name']}: {p['entry_price']:.2f} -> {curr:.2f} ({pnl:+.1f}%)")
+    elif args.action == 'rps':
+        run_rps_scan(auto_buy=False)
+    elif args.action == 'rps_trade':
+        run_rps_scan(auto_buy=True)
     elif args.action == 'report':
         send_notify("白板V6.2", generate_report())
 
@@ -399,3 +581,103 @@ def run_quick_scan():
     
     return candidates
 
+
+# === RPS 强势股筛选模块 ===
+
+def calculate_rps(code, days=120):
+    """计算单只股票的RPS"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    cursor.execute(f'''
+        SELECT 
+            (MAX(close) - MIN(close)) / MIN(close) * 100 as change
+        FROM daily_data
+        WHERE code = '{code}' AND date >= date('now', '-{days} days')
+    ''')
+    result = cursor.fetchone()
+    conn.close()
+    return result[0] if result and result[0] else 0
+
+def get_rps_rank(days=120, min_days=60):
+    """获取全市场RPS排名"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    cursor.execute(f'''
+        SELECT code, 
+               (MAX(close) - MIN(close)) / NULLIF(MIN(close), 0) * 100 as rps
+        FROM daily_data
+        WHERE date >= date('now', '-{days} days')
+        GROUP BY code
+        HAVING COUNT(DISTINCT date) >= {min_days}
+        ORDER BY rps DESC
+    ''')
+    
+    results = cursor.fetchall()
+    conn.close()
+    
+    # 计算排名百分比
+    total = len(results)
+    rps_list = []
+    for i, r in enumerate(results):
+        rank_pct = (total - i) / total * 100
+        rps_list.append({
+            'code': r[0],
+            'rps': r[1],
+            'rank': i + 1,
+            'rank_pct': rank_pct
+        })
+    
+    return rps_list
+
+def scan_rps_stocks(min_rps=80, days=120):
+    """扫描RPS强势股"""
+    print(f"📊 扫描RPS{days}强势股 (RPS>{min_rps})...")
+    
+    rps_list = get_rps_rank(days=days)
+    
+    # 筛选RPS > min_rps
+    strong_stocks = [s for s in rps_list if s['rank_pct'] >= min_rps]
+    
+    # 获取实时价格和基本面
+    results = []
+    for s in strong_stocks[:30]:  # 取前30只
+        code = s['code']
+        
+        # 获取实时价格
+        rt = get_realtime_price(code)
+        if not rt:
+            continue
+        
+        # 获取K线分析技术面
+        fetcher = SmartDataFetcher()
+        df = fetcher.get_stock_data(code, days=25)
+        if df is None or len(df) < 20:
+            continue
+        
+        close = df['close']
+        ma5, ma10, ma20 = close.rolling(5).mean(), close.rolling(10).mean(), close.rolling(20).mean()
+        v = df['volume'] / df['volume'].rolling(20).mean()
+        
+        has_ma = ma5.iloc[-1] > ma10.iloc[-1] > ma20.iloc[-1]
+        vol_ok = 1.2 < v.iloc[-1] < 3
+        
+        change = (rt['price'] - rt['open']) / rt['open'] * 100
+        
+        results.append({
+            'code': code,
+            'name': get_name(code),
+            'price': rt['price'],
+            'change': change,
+            'rps': s['rps'],
+            'rps_pct': s['rank_pct'],
+            'ma': has_ma,
+            'vol_ratio': v.iloc[-1]
+        })
+    
+    # 按RPS排序
+    results.sort(key=lambda x: x['rps_pct'], reverse=True)
+    
+    print(f"  找到{len(results)}只RPS>{min_rps}的股票")
+    return results
